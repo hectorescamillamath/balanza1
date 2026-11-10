@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Balanza de dos brazos</title>
+<style>
+  :root{
+    --bg:#f6f4ef; --ink:#23262b; --muted:#5a5f66;
+    --metal:#4f5864; --metal2:#7d8794; --zone:#e7e2d6; --zone-hi:#f3d9b8;
+    --obj:#3d6b8c; --obj-stroke:#1f3f57; --sel:#c9772b;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:18px;
+    -webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+  .wrap{max-width:660px;margin:0 auto;padding:12px 16px 18px}
+  h1{font-size:1.15rem;margin:0 0 4px}
+  .instr{font-size:.9rem;color:var(--muted);margin:0 0 8px;line-height:1.35}
+  .stage{position:relative;height:270px;overflow:hidden}
+  .pillar{position:absolute;width:10px;background:var(--metal);border-radius:4px}
+  .base{position:absolute;height:14px;background:var(--metal);border-radius:6px 6px 2px 2px}
+  .beam{position:absolute;height:9px;background:var(--metal);border-radius:5px;transform-origin:50% 50%}
+  .pivot{position:absolute;width:20px;height:20px;border-radius:50%;background:var(--metal2);border:3px solid var(--metal)}
+  .pan{position:absolute;height:132px}
+  .pan svg.strings{position:absolute;inset:0 0 12px 0;width:100%;height:calc(100% - 12px);pointer-events:none}
+  .pan .dish{position:absolute;left:0;right:0;bottom:0;height:14px;background:var(--metal2);
+    border:3px solid var(--metal);border-top-width:4px;border-radius:2px 2px 40px 40px}
+  .pan .load{position:absolute;left:8%;right:8%;bottom:14px;height:72px;display:flex;
+    align-items:flex-end;justify-content:center;gap:4px;flex-wrap:wrap-reverse;border-radius:8px}
+  .pan.over .load{background:rgba(201,119,43,.18);outline:2px dashed var(--sel)}
+  .tray{display:flex;justify-content:space-around;align-items:center;gap:6px;min-height:84px;
+    background:var(--zone);border-radius:12px;padding:8px;margin-top:6px}
+  .tray.over{background:var(--zone-hi)}
+  .obj{width:60px;height:60px;flex:0 0 auto;touch-action:none;cursor:grab;border-radius:8px}
+  .obj svg{width:100%;height:100%;display:block;pointer-events:none}
+  .obj svg *{fill:var(--obj);stroke:var(--obj-stroke);stroke-width:2.5}
+  .obj.sel{outline:3px solid var(--sel);outline-offset:2px}
+  .obj.dragging{position:fixed;z-index:50;cursor:grabbing;filter:drop-shadow(0 6px 6px rgba(0,0,0,.25))}
+  .bar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;flex-wrap:wrap}
+  .msg{font-size:.9rem;color:var(--muted);min-height:1.3em;flex:1 1 220px}
+  button{font:inherit;font-size:.9rem;padding:8px 14px;border-radius:8px;border:1px solid var(--metal);
+    background:#fff;color:var(--ink);cursor:pointer}
+  button:active{transform:translateY(1px)}
+  @media (max-width:420px){ .obj{width:50px;height:50px} .stage{height:250px} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Balanza de dos brazos</h1>
+  <p class="instr">Arrastra las figuras a los platos (o toca una figura y luego un plato). La balanza se inclina hacia el lado más pesado. Haz las comparaciones que necesites para ordenar las figuras de la más ligera a la más pesada.</p>
+
+  <div class="stage" id="stage">
+    <div class="pillar" id="pillar"></div>
+    <div class="base" id="base"></div>
+    <div class="pan" id="panL" data-zone="L">
+      <svg class="strings" viewBox="0 0 100 100" preserveAspectRatio="none">
+        <line x1="50" y1="0" x2="2" y2="100" stroke="#4f5864" stroke-width="1.2" vector-effect="non-scaling-stroke"/>
+        <line x1="50" y1="0" x2="98" y2="100" stroke="#4f5864" stroke-width="1.2" vector-effect="non-scaling-stroke"/>
+      </svg>
+      <div class="load"></div><div class="dish"></div>
+    </div>
+    <div class="pan" id="panR" data-zone="R">
+      <svg class="strings" viewBox="0 0 100 100" preserveAspectRatio="none">
+        <line x1="50" y1="0" x2="2" y2="100" stroke="#4f5864" stroke-width="1.2" vector-effect="non-scaling-stroke"/>
+        <line x1="50" y1="0" x2="98" y2="100" stroke="#4f5864" stroke-width="1.2" vector-effect="non-scaling-stroke"/>
+      </svg>
+      <div class="load"></div><div class="dish"></div>
+    </div>
+    <div class="beam" id="beam"></div>
+    <div class="pivot" id="pivot"></div>
+  </div>
+
+  <div class="tray" id="tray" data-zone="T" aria-label="Bandeja de objetos"></div>
+
+  <div class="bar">
+    <div class="msg" id="msg">Coloca una figura en cada plato para compararlas.</div>
+    <button id="reset" type="button">Reiniciar</button>
+  </div>
+</div>
+
+<script>
+/* =================== CONFIGURACIÓN DEL DOCENTE ===================
+   orden: de la MÁS LIGERA a la MÁS PESADA. Debe coincidir con la
+          respuesta correcta de la pregunta en Moodle.
+   Valores válidos: 'triangulo','trapecio','cuadrado','circulo','hexagono'
+   Variantes: si la URL trae ?s=NÚMERO (p. ej. balanza.html?s=3), el orden
+   se genera a partir de esa semilla e ignora 'orden'.
+   maxPorPlato: 1 obliga a comparar de a pares (más interacción).
+   ================================================================= */
+const CONFIG = {
+  orden: ['circulo','triangulo','hexagono','cuadrado','trapecio'],
+  maxPorPlato: 1
+};
+
+const FORMAS = {
+  triangulo: '<polygon points="30,5 57,53 3,53"/>',
+  trapecio:  '<polygon points="17,11 43,11 57,50 3,50"/>',
+  cuadrado:  '<rect x="8" y="8" width="44" height="44" rx="2"/>',
+  circulo:   '<circle cx="30" cy="30" r="24"/>',
+  hexagono:  '<polygon points="56,30 43,52.5 17,52.5 4,30 17,7.5 43,7.5"/>'
+};
+const NOMBRES = {triangulo:'triángulo',trapecio:'trapecio',cuadrado:'cuadrado',circulo:'círculo',hexagono:'hexágono'};
+const PESOS_POR_RANGO = [10,17,23,31,40];
+
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);
+  t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function barajar(arr, rnd){const a=arr.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(rnd()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
+
+const params = new URLSearchParams(location.search);
+let orden = CONFIG.orden;
+if (params.has('s')) orden = barajar(Object.keys(FORMAS), mulberry32(parseInt(params.get('s'),10)||1));
+const PESO = {}; orden.forEach((f,i)=>PESO[f]=PESOS_POR_RANGO[i]);
+
+const $ = id => document.getElementById(id);
+const stage=$('stage'), tray=$('tray'), panL=$('panL'), panR=$('panR'), beam=$('beam'), msgEl=$('msg');
+const loadL=panL.querySelector('.load'), loadR=panR.querySelector('.load');
+const zonas = {L:loadL, R:loadR, T:tray};
+
+/* ---------- objetos ---------- */
+const objetos = {};
+Object.keys(FORMAS).forEach(f=>{
+  const d=document.createElement('div');
+  d.className='obj'; d.dataset.forma=f; d.setAttribute('role','button');
+  d.setAttribute('aria-label',NOMBRES[f]);
+  d.innerHTML='<svg viewBox="0 0 60 60">'+FORMAS[f]+'</svg>';
+  objetos[f]=d;
+});
+function llenarBandeja(){
+  barajar(Object.keys(FORMAS), Math.random).forEach(f=>tray.appendChild(objetos[f]));
+}
+
+/* ---------- geometría y animación ---------- */
+const MAX_ANG = 11;
+let ang=0, vel=0, target=0, animando=false;
+function layout(){
+  const W=stage.clientWidth, H=stage.clientHeight, cx=W/2, py=58;
+  const L=Math.min(W*0.3,190), pw=Math.min(W*0.34,180);
+  $('pillar').style.cssText=`left:${cx-5}px;top:${py}px;height:${H-py-12}px`;
+  $('base').style.cssText=`left:${cx-55}px;width:110px;top:${H-16}px`;
+  $('pivot').style.cssText=`left:${cx-10}px;top:${py-10}px`;
+  beam.style.width=(2*L)+'px'; beam.style.left=(cx-L)+'px'; beam.style.top=(py-4.5)+'px';
+  beam.style.transform=`rotate(${ang}deg)`;
+  const r=ang*Math.PI/180, c=Math.cos(r), s=Math.sin(r);
+  panL.style.width=pw+'px'; panR.style.width=pw+'px';
+  panL.style.left=(cx-L*c-pw/2)+'px'; panL.style.top=(py-L*s)+'px';
+  panR.style.left=(cx+L*c-pw/2)+'px'; panR.style.top=(py+L*s)+'px';
+}
+function paso(){
+  vel=(vel+(target-ang)*0.06)*0.86; ang+=vel; layout();
+  if(Math.abs(vel)>0.002||Math.abs(target-ang)>0.002) requestAnimationFrame(paso);
+  else {ang=target; layout(); animando=false;}
+}
+function animar(){ if(!animando){animando=true;requestAnimationFrame(paso);} }
+
+function masa(zona){ return [...zona.children].reduce((m,o)=>m+PESO[o.dataset.forma],0); }
+function actualizar(){
+  const mL=masa(loadL), mR=masa(loadR);
+  target = mL===mR ? 0 : (mR>mL ? MAX_ANG : -MAX_ANG);
+  animar();
+  const nL=loadL.children.length, nR=loadR.children.length;
+  if(nL&&nR) msg(mL===mR?'La balanza está en equilibrio.':'Observa hacia qué lado se inclina la balanza.');
+  else msg('Coloca una figura en cada plato para compararlas.');
+}
+function msg(t){ msgEl.textContent=t; }
+
+/* ---------- mover objetos ---------- */
+function zonaEn(x,y){
+  for(const [k,el] of [['L',panL],['R',panR],['T',tray]]){
+    const b=el.getBoundingClientRect();
+    if(x>=b.left-10&&x<=b.right+10&&y>=b.top-10&&y<=b.bottom+10) return k;
+  }
+  return null;
+}
+function mover(obj, k){
+  const destino=zonas[k];
+  if(k!=='T' && destino!==obj.parentElement && destino.children.length>=CONFIG.maxPorPlato){
+    if(CONFIG.maxPorPlato===1){ tray.appendChild(destino.firstElementChild); } // intercambia: devuelve el anterior
+    else { msg('Ese plato ya está lleno.'); return false; }
+  }
+  destino.appendChild(obj); return true;
+}
+function marcar(k){ panL.classList.toggle('over',k==='L'); panR.classList.toggle('over',k==='R'); tray.classList.toggle('over',k==='T'); }
+
+let seleccionado=null, drag=null;
+function deseleccionar(){ if(seleccionado){seleccionado.classList.remove('sel'); seleccionado=null;} }
+
+document.addEventListener('pointerdown',e=>{
+  const obj=e.target.closest('.obj');
+  if(!obj){
+    const k=zonaEn(e.clientX,e.clientY);
+    if(seleccionado&&k){ mover(seleccionado,k); deseleccionar(); actualizar(); }
+    return;
+  }
+  e.preventDefault();
+  const b=obj.getBoundingClientRect();
+  drag={obj, origen:obj.parentElement, dx:e.clientX-b.left, dy:e.clientY-b.top,
+        x0:e.clientX, y0:e.clientY, w:b.width, activo:false, id:e.pointerId};
+  obj.setPointerCapture(e.pointerId);
+});
+document.addEventListener('pointermove',e=>{
+  if(!drag||e.pointerId!==drag.id) return;
+  if(!drag.activo){
+    if(Math.hypot(e.clientX-drag.x0,e.clientY-drag.y0)<6) return;
+    drag.activo=true; deseleccionar();
+    const o=drag.obj; o.classList.add('dragging');
+    o.style.width=o.style.height=drag.w+'px';
+    document.body.appendChild(o); actualizar();
+  }
+  drag.obj.style.left=(e.clientX-drag.dx)+'px'; drag.obj.style.top=(e.clientY-drag.dy)+'px';
+  marcar(zonaEn(e.clientX,e.clientY));
+});
+function soltar(e){
+  if(!drag||e.pointerId!==drag.id) return;
+  const o=drag.obj;
+  if(drag.activo){
+    o.classList.remove('dragging'); o.style.cssText='';
+    const k=zonaEn(e.clientX,e.clientY);
+    if(!(k && mover(o,k))) drag.origen.appendChild(o);
+    marcar(null); actualizar();
+  } else {
+    // toque sin arrastre: seleccionar / deseleccionar
+    if(seleccionado===o) deseleccionar();
+    else { deseleccionar(); seleccionado=o; o.classList.add('sel'); msg('Ahora toca un plato o la bandeja.'); }
+  }
+  drag=null;
+}
+document.addEventListener('pointerup',soltar);
+document.addEventListener('pointercancel',soltar);
+document.addEventListener('contextmenu',e=>e.preventDefault());
+
+$('reset').addEventListener('click',()=>{
+  deseleccionar(); [...loadL.children,...loadR.children].forEach(o=>tray.appendChild(o));
+  tray.innerHTML=''; llenarBandeja(); actualizar();
+});
+window.addEventListener('resize',layout);
+
+llenarBandeja(); layout(); actualizar();
+</script>
+</body>
+</html>
